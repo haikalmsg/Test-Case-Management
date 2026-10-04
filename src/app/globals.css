@@ -1,0 +1,66 @@
+@import "tailwindcss";
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: #ffffff;
+  --color-muted: #f1f4f8;
+  --color-muted-foreground: #6b778c;
+  --color-border: #e4e9f1;
+  --color-input: #dce3ed;
+  --color-destructive: #e5484d;
+  --font-sans: Arial, Helvetica, sans-serif;
+}
+:root {
+  --background: #ffffff;
+  --foreground: #172b4d;
+  --card: #ffffff;
+  --primary: #5364dc;
+}
+body {
+  background: #f8f9fc;
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}
+button,
+select {
+  cursor: pointer;
+}
+button:disabled {
+  cursor: default;
+}
+::selection {
+  background: #dfe3ff;
+}
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 0.875rem;
+}
+.table th {
+  padding: 0.8rem 1.25rem;
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+  font-weight: 600;
+  color: #6b778c;
+  background: #fafbfe;
+  border-bottom: 1px solid #e4e9f1;
+}
+.table td {
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid #edf0f5;
+}
+.table tr:last-child td {
+  border-bottom: 0;
+}
+.table tbody tr:hover {
+  background: #fafbfe;
+}
+input[type="checkbox"] {
+  accent-color: var(--primary);
+  width: 1rem;
+  height: 1rem;
+}

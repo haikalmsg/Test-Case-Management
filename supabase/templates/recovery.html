@@ -1,0 +1,2 @@
+<h2>Set your password</h2>
+<p><a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=recovery&flow={{ if eq .RedirectTo (print .SiteURL "/update-password?flow=invite") }}invite{{ else }}recovery{{ end }}">Choose a password</a></p>

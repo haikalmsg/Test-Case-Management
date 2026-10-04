@@ -1,0 +1,1 @@
+-- Optional sample data is loaded explicitly using pnpm seed:sample.
