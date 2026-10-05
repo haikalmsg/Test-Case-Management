@@ -5,5 +5,5 @@ export default async function Project({
   params: Promise<{ projectId: string }>;
 }) {
   const { projectId } = await params;
-  redirect(`/projects/${projectId}/cases`);
+  redirect(`/projects/${projectId}/plans`);
 }

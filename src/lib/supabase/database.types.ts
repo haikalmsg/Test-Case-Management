@@ -133,6 +133,39 @@ export type Database = {
           },
         ];
       };
+      plan_cases: {
+        Row: {
+          case_id: string;
+          plan_id: string;
+          project_id: string;
+        };
+        Insert: {
+          case_id: string;
+          plan_id: string;
+          project_id: string;
+        };
+        Update: {
+          case_id?: string;
+          plan_id?: string;
+          project_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "plan_cases_case_id_project_id_fkey";
+            columns: ["case_id", "project_id"];
+            isOneToOne: false;
+            referencedRelation: "test_cases";
+            referencedColumns: ["id", "project_id"];
+          },
+          {
+            foreignKeyName: "plan_cases_plan_id_project_id_fkey";
+            columns: ["plan_id", "project_id"];
+            isOneToOne: false;
+            referencedRelation: "test_plans";
+            referencedColumns: ["id", "project_id"];
+          },
+        ];
+      };
       profiles: {
         Row: {
           created_at: string;
@@ -263,6 +296,7 @@ export type Database = {
           description: string;
           id: string;
           name: string;
+          parent_id: string | null;
           project_id: string;
         };
         Insert: {
@@ -271,6 +305,7 @@ export type Database = {
           description?: string;
           id?: string;
           name: string;
+          parent_id?: string | null;
           project_id: string;
         };
         Update: {
@@ -279,9 +314,17 @@ export type Database = {
           description?: string;
           id?: string;
           name?: string;
+          parent_id?: string | null;
           project_id?: string;
         };
         Relationships: [
+          {
+            foreignKeyName: "suites_parent_fkey";
+            columns: ["parent_id", "project_id"];
+            isOneToOne: false;
+            referencedRelation: "suites";
+            referencedColumns: ["id", "project_id"];
+          },
           {
             foreignKeyName: "suites_project_id_fkey";
             columns: ["project_id"];
@@ -361,6 +404,54 @@ export type Database = {
           },
         ];
       };
+      test_plans: {
+        Row: {
+          archived_at: string | null;
+          created_at: string;
+          created_by: string;
+          description: string;
+          id: string;
+          name: string;
+          project_id: string;
+          updated_at: string;
+        };
+        Insert: {
+          archived_at?: string | null;
+          created_at?: string;
+          created_by: string;
+          description?: string;
+          id?: string;
+          name: string;
+          project_id: string;
+          updated_at?: string;
+        };
+        Update: {
+          archived_at?: string | null;
+          created_at?: string;
+          created_by?: string;
+          description?: string;
+          id?: string;
+          name?: string;
+          project_id?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "test_plans_created_by_fkey";
+            columns: ["created_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "test_plans_project_id_fkey";
+            columns: ["project_id"];
+            isOneToOne: false;
+            referencedRelation: "projects";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       test_runs: {
         Row: {
           completed_at: string | null;
@@ -369,7 +460,9 @@ export type Database = {
           environment: string;
           id: string;
           name: string;
+          plan_id: string | null;
           project_id: string;
+          source_run_id: string | null;
           status: Database["public"]["Enums"]["run_status"];
         };
         Insert: {
@@ -379,7 +472,9 @@ export type Database = {
           environment?: string;
           id?: string;
           name: string;
+          plan_id?: string | null;
           project_id: string;
+          source_run_id?: string | null;
           status?: Database["public"]["Enums"]["run_status"];
         };
         Update: {
@@ -389,10 +484,26 @@ export type Database = {
           environment?: string;
           id?: string;
           name?: string;
+          plan_id?: string | null;
           project_id?: string;
+          source_run_id?: string | null;
           status?: Database["public"]["Enums"]["run_status"];
         };
         Relationships: [
+          {
+            foreignKeyName: "runs_plan_fkey";
+            columns: ["plan_id", "project_id"];
+            isOneToOne: false;
+            referencedRelation: "test_plans";
+            referencedColumns: ["id", "project_id"];
+          },
+          {
+            foreignKeyName: "runs_source_fkey";
+            columns: ["source_run_id", "plan_id", "project_id"];
+            isOneToOne: false;
+            referencedRelation: "test_runs";
+            referencedColumns: ["id", "plan_id", "project_id"];
+          },
           {
             foreignKeyName: "test_runs_created_by_fkey";
             columns: ["created_by"];
@@ -434,17 +545,24 @@ export type Database = {
         Returns: undefined;
       };
       archive_case: { Args: { p_case_id: string }; Returns: undefined };
+      archive_group: { Args: { p_group_id: string }; Returns: undefined };
+      archive_plan: { Args: { p_plan_id: string }; Returns: undefined };
       complete_run: { Args: { p_run_id: string }; Returns: undefined };
-      create_run: {
+      create_plan_run: {
         Args: {
-          p_case_ids: string[];
           p_environment: string;
+          p_mode?: string;
           p_name: string;
-          p_project_id: string;
+          p_plan_id: string;
+          p_source_run_id?: string;
         };
         Returns: string;
       };
       dashboard_summary: { Args: Record<PropertyKey, never>; Returns: Json };
+      group_descendant_ids: {
+        Args: { p_group_id: string; p_project_id: string };
+        Returns: string[];
+      };
       manage_member: {
         Args: {
           p_active: boolean;
@@ -483,6 +601,26 @@ export type Database = {
           p_steps: Json;
           p_suite_id?: string;
           p_title: string;
+        };
+        Returns: string;
+      };
+      save_group: {
+        Args: {
+          p_description: string;
+          p_group_id?: string;
+          p_name: string;
+          p_parent_id?: string;
+          p_project_id: string;
+        };
+        Returns: string;
+      };
+      save_plan: {
+        Args: {
+          p_case_ids: string[];
+          p_description: string;
+          p_name: string;
+          p_plan_id?: string;
+          p_project_id: string;
         };
         Returns: string;
       };

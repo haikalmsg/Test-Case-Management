@@ -1,121 +1,73 @@
 import Link from "next/link";
-import { Plus, Play } from "lucide-react";
 import { getProject } from "@/features/projects/queries";
 import { requireMember } from "@/lib/auth";
 import { assertOk } from "@/lib/actions";
-import { dateLabel } from "@/lib/utils";
-import { runStats } from "@/features/runs/stats";
-import {
-  PageHeader,
-  StatusBadge,
-  ProgressBar,
-  EmptyState,
-} from "@/components/shared";
+import { PageHeader, EmptyState } from "@/components/shared";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { RunHistory } from "@/features/runs/run-history";
+
 export default async function Runs({
   params,
   searchParams,
 }: {
   params: Promise<{ projectId: string }>;
-  searchParams: Promise<{ page?: string }>;
+  searchParams: Promise<{ page?: string; legacy?: string }>;
 }) {
   const { projectId } = await params;
   const project = await getProject(projectId);
   const { client } = await requireMember();
-  const { page: raw } = await searchParams;
+  const f = await searchParams;
   const page = Math.max(
     1,
-    Math.min(100000, Number.parseInt(raw ?? "1", 10) || 1),
+    Math.min(100000, Number.parseInt(f.page ?? "1", 10) || 1),
   );
-  const { data, error, count } = await client
+  let query = client
     .from("test_runs")
-    .select("*,run_cases(status)", { count: "exact" })
+    .select("*,run_cases(status),test_plans(name,archived_at)", {
+      count: "exact",
+    })
     .eq("project_id", projectId)
-    .order("created_at", { ascending: false })
-    .range((page - 1) * 20, page * 20 - 1);
+    .order("created_at", { ascending: false });
+  if (f.legacy === "1") query = query.is("plan_id", null);
+  const { data, error, count } = await query.range(
+    (page - 1) * 20,
+    page * 20 - 1,
+  );
   assertOk(error);
+  const base = `/projects/${projectId}`;
+  const pageHref = (n: number) =>
+    `?page=${n}${f.legacy === "1" ? "&legacy=1" : ""}`;
   return (
     <>
       <PageHeader
         eyebrow={`${project.code} / Execution`}
-        title="Test runs"
-        description="Every execution, every outcome, in one place."
+        title={f.legacy === "1" ? "Legacy runs" : "Run history"}
+        description="Every plan execution and earlier standalone run, with its original outcomes."
       >
         {!project.archived_at ? (
           <Button asChild>
-            <Link href={`/projects/${projectId}/runs/new`}>
-              <Plus className="size-4" />
-              Start a run
-            </Link>
+            <Link href={`${base}/plans`}>Choose a plan to run</Link>
           </Button>
         ) : null}
       </PageHeader>
+      <div className="mb-4 flex gap-4 text-sm text-primary">
+        <Link href={`${base}/runs`}>All runs</Link>
+        <Link href={`${base}/runs?legacy=1`}>Legacy runs</Link>
+      </div>
       <Card>
         {data?.length ? (
-          <div className="overflow-x-auto">
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>RUN</th>
-                  <th>STATUS</th>
-                  <th>PROGRESS</th>
-                  <th>PASS RATE</th>
-                  <th>CREATED</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.map((run) => {
-                  const s = runStats(run.run_cases);
-                  return (
-                    <tr key={run.id}>
-                      <td>
-                        <Link
-                          className="font-medium hover:text-primary"
-                          href={`/projects/${projectId}/runs/${run.id}`}
-                        >
-                          {run.name}
-                        </Link>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          {run.environment || "No environment"} · {s.total}{" "}
-                          cases
-                        </p>
-                      </td>
-                      <td>
-                        <StatusBadge status={run.status} />
-                      </td>
-                      <td className="min-w-36">
-                        <div className="mb-2 flex justify-between text-xs text-muted-foreground">
-                          <span>
-                            {s.done}/{s.total}
-                          </span>
-                          <span>{s.progress}%</span>
-                        </div>
-                        <ProgressBar value={s.progress} />
-                      </td>
-                      <td className="text-sm font-medium">
-                        {s.passRate === null ? "—" : `${s.passRate}%`}
-                      </td>
-                      <td className="whitespace-nowrap text-xs text-muted-foreground">
-                        {dateLabel(run.created_at)}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+          <RunHistory
+            projectId={projectId}
+            runs={data}
+            allowRerun={!project.archived_at}
+          />
         ) : (
           <EmptyState
-            icon={Play}
             title="No runs yet"
-            description="Start a run to execute selected cases and record your results."
-            href={
-              !project.archived_at
-                ? `/projects/${projectId}/runs/new`
-                : undefined
-            }
-            label="Start a test run"
+            description="Choose a test plan and start an execution to record outcomes."
+            href={!project.archived_at ? `${base}/plans` : undefined}
+            label="View test plans"
           />
         )}
         <div className="flex items-center justify-between border-t px-5 py-4 text-xs text-muted-foreground">
@@ -124,12 +76,12 @@ export default async function Runs({
           </span>
           <div className="flex gap-3">
             {page > 1 ? (
-              <Link href={`?page=${page - 1}`} className="text-primary">
+              <Link href={pageHref(page - 1)} className="text-primary">
                 ← Previous
               </Link>
             ) : null}
             {page * 20 < (count ?? 0) ? (
-              <Link href={`?page=${page + 1}`} className="text-primary">
+              <Link href={pageHref(page + 1)} className="text-primary">
                 Next →
               </Link>
             ) : null}

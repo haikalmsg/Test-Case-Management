@@ -7,13 +7,15 @@ import { Button } from "./ui/button";
 export function SubmitButton({
   children = "Save",
   variant = "default",
+  disabled = false,
 }: {
   children?: ReactNode;
   variant?: "default" | "outline" | "destructive" | "ghost";
+  disabled?: boolean;
 }) {
   const { pending } = useFormStatus();
   return (
-    <Button type="submit" disabled={pending} variant={variant}>
+    <Button type="submit" disabled={pending || disabled} variant={variant}>
       {pending ? <LoaderCircle className="size-4 animate-spin" /> : null}
       {pending ? "Saving…" : children}
     </Button>
@@ -26,6 +28,7 @@ export function ActionForm({
   className = "space-y-4",
   variant = "default",
   confirm,
+  submitDisabled = false,
 }: {
   action: (state: ActionState, form: FormData) => Promise<ActionState>;
   children?: ReactNode;
@@ -33,6 +36,7 @@ export function ActionForm({
   className?: string;
   variant?: "default" | "outline" | "destructive" | "ghost";
   confirm?: string;
+  submitDisabled?: boolean;
 }) {
   const [state, formAction] = useActionState(action, {});
   return (
@@ -64,7 +68,9 @@ export function ActionForm({
           {state.success}
         </p>
       ) : null}
-      <SubmitButton variant={variant}>{submit}</SubmitButton>
+      <SubmitButton variant={variant} disabled={submitDisabled}>
+        {submit}
+      </SubmitButton>
     </form>
   );
 }

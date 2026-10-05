@@ -1,3 +1,5 @@
+import Link from "next/link";
+import { Button } from "@/components/ui/button";
 import { notFound } from "next/navigation";
 import { getProject } from "@/features/projects/queries";
 import { requireMember } from "@/lib/auth";
@@ -30,7 +32,7 @@ export default async function RunDetail({
   const [run, cases] = await Promise.all([
     client
       .from("test_runs")
-      .select("*")
+      .select("*,test_plans(name,archived_at)")
       .eq("id", runId)
       .eq("project_id", projectId)
       .maybeSingle(),
@@ -54,7 +56,56 @@ export default async function RunDetail({
         description={`${run.data.environment || "No environment specified"} · Created ${dateLabel(run.data.created_at)}`}
       >
         <StatusBadge status={run.data.status} />
+        {!run.data.plan_id ? <Badge>Legacy run</Badge> : null}
       </PageHeader>
+      <div className="mb-6 flex flex-wrap items-center gap-3 text-sm">
+        {run.data.plan_id ? (
+          <Link
+            className="text-primary"
+            href={`/projects/${projectId}/plans/${run.data.plan_id}`}
+          >
+            Plan: {run.data.test_plans?.name}
+          </Link>
+        ) : (
+          <Link
+            className="text-primary"
+            href={`/projects/${projectId}/runs?legacy=1`}
+          >
+            Legacy run history
+          </Link>
+        )}
+        {run.data.source_run_id ? (
+          <Link
+            className="text-primary"
+            href={`/projects/${projectId}/runs/${run.data.source_run_id}`}
+          >
+            View source execution
+          </Link>
+        ) : null}
+        {run.data.plan_id &&
+        run.data.status === "completed" &&
+        !project.archived_at &&
+        !run.data.test_plans?.archived_at ? (
+          <>
+            <Button asChild size="sm" variant="outline">
+              <Link
+                href={`/projects/${projectId}/plans/${run.data.plan_id}/run?source=${runId}`}
+              >
+                Rerun all
+              </Link>
+            </Button>
+            {stats.counts.failed + stats.counts.blocked > 0 ? (
+              <Button asChild size="sm" variant="outline">
+                <Link
+                  href={`/projects/${projectId}/plans/${run.data.plan_id}/run?source=${runId}&mode=unsuccessful`}
+                >
+                  Rerun failed/blocked
+                </Link>
+              </Button>
+            ) : null}
+          </>
+        ) : null}
+      </div>
       <Card className="mb-6">
         <CardContent>
           <div className="flex flex-wrap items-center justify-between gap-5">

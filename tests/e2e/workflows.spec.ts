@@ -16,7 +16,7 @@ test.beforeEach(async ({ page }) => {
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await expect(page).toHaveURL(/dashboard/);
 });
-test("repository → execution → completed history → dashboard", async ({
+test("library → plan → execution → rerun → completed history → dashboard", async ({
   page,
 }) => {
   const code = `E${randomUUID().replaceAll("-", "").slice(0, 7).toUpperCase()}`;
@@ -28,19 +28,20 @@ test("repository → execution → completed history → dashboard", async ({
     .getByRole("button", { name: "Create project", exact: true })
     .click();
   await page.getByRole("heading", { name, exact: true }).click();
-  await page.getByRole("link", { name: "Test suites", exact: true }).click();
-  await page.getByLabel("Suite name", { exact: true }).fill("Authentication");
-  await page.getByRole("button", { name: "Create suite", exact: true }).click();
-  await expect(
-    page.getByRole("heading", { name: "Authentication", exact: true }),
-  ).toBeVisible();
+  await page.getByRole("link", { name: "Case library", exact: true }).click();
+  await page.getByRole("button", { name: "New folder", exact: true }).click();
+  await page.getByLabel("Folder name", { exact: true }).fill("Authentication");
   await page
-    .getByRole("link", { name: "Test repository", exact: true })
+    .getByRole("button", { name: "Create folder", exact: true })
+    .click();
+  await page
+    .getByRole("navigation", { name: "Case library folders", exact: true })
+    .getByRole("link", { name: "Authentication", exact: true })
     .click();
   await page.getByRole("link", { name: "New case", exact: true }).click();
   await page.getByLabel("Title", { exact: true }).fill("Valid sign-in");
   await page
-    .getByLabel("Suite", { exact: true })
+    .getByLabel("Case group", { exact: true })
     .selectOption({ label: "Authentication" });
   await page.getByRole("button", { name: "Add step" }).click();
   await page
@@ -53,19 +54,46 @@ test("repository → execution → completed history → dashboard", async ({
   await expect(
     page.getByRole("heading", { name: "Valid sign-in", exact: true }),
   ).toBeVisible();
-  await page.getByRole("link", { name: "Test runs", exact: true }).click();
+  await page.getByRole("link", { name: "Test plans", exact: true }).click();
+  await page.getByRole("link", { name: "New plan", exact: true }).click();
+  await page.getByLabel("Plan name", { exact: true }).fill(`Plan ${code}`);
   await page
-    .getByRole("link", { name: "Start a run", exact: true })
+    .getByLabel("Filter by case group", { exact: true })
+    .selectOption({ label: "Authentication" });
+  await page
+    .getByRole("button", { name: "Import whole group", exact: true })
+    .click();
+  await expect(
+    page.getByLabel("Remove Valid sign-in", { exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Create plan", exact: true }).click();
+  await page
+    .getByRole("link", { name: "Run all", exact: true })
     .first()
     .click();
-  await page.getByLabel("Run name").fill(`Smoke ${code}`);
-  await page.getByLabel("Include Valid sign-in", { exact: true }).check();
-  await page.getByRole("button", { name: "Create & start run" }).click();
-  await page.getByLabel("Result", { exact: true }).selectOption("passed");
+  await page.getByLabel("Run name", { exact: true }).fill(`Smoke ${code}`);
+  await page.getByRole("button", { name: "Start run", exact: true }).click();
+  await page.getByLabel("Result", { exact: true }).selectOption("failed");
   await page.getByRole("button", { name: "Save result", exact: true }).click();
   await expect(page.getByText("1 of 1 cases executed")).toBeVisible();
   page.once("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: "Complete run", exact: true }).click();
+  await expect(page.getByText(/This run is read-only/)).toBeVisible();
+  await page
+    .getByRole("link", { name: "Rerun failed/blocked", exact: true })
+    .click();
+  await page.getByLabel("Run name", { exact: true }).fill(`Retry ${code}`);
+  await page.getByRole("button", { name: "Start rerun", exact: true }).click();
+  await expect(page.getByLabel("Result", { exact: true })).toHaveValue(
+    "untested",
+  );
+  await page.getByLabel("Result", { exact: true }).selectOption("passed");
+  await page.getByRole("button", { name: "Save result", exact: true }).click();
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "Complete run", exact: true }).click();
+  await page
+    .getByRole("link", { name: "View source execution", exact: true })
+    .click();
   await expect(page.getByText(/This run is read-only/)).toBeVisible();
   await page.getByRole("link", { name: "Overview", exact: true }).click();
   await expect(

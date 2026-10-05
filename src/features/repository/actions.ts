@@ -122,33 +122,29 @@ export async function saveSuite(
 ): Promise<ActionState> {
   const { client } = await requireMember();
   try {
-    const { id, project_id, ...values } = readForm(
+    const { id, project_id, parent_id, ...values } = readForm(
       z.object({
         id: z.union([uuid, z.literal("")]).optional(),
         project_id: uuid,
+        parent_id: z.union([uuid, z.literal("")]).optional(),
         name: z.string().trim().min(1).max(120),
         description: z.string().max(10000),
       }),
       form,
     );
-    if (id)
-      assertOk(
-        (
-          await client
-            .from("suites")
-            .update(values)
-            .eq("id", id)
-            .eq("project_id", project_id)
-            .select("id")
-            .single()
-        ).error,
-      );
-    else
-      assertOk(
-        (await client.from("suites").insert({ project_id, ...values })).error,
-      );
+    assertOk(
+      (
+        await client.rpc("save_group", {
+          p_project_id: project_id,
+          p_group_id: id || undefined,
+          p_name: values.name,
+          p_description: values.description,
+          p_parent_id: parent_id || undefined,
+        })
+      ).error,
+    );
     revalidatePath("/", "layout");
-    return { success: id ? "Suite updated." : "Suite created." };
+    return { success: id ? "Folder updated." : "Folder created." };
   } catch (error) {
     return actionError(error);
   }
@@ -160,18 +156,12 @@ export async function archiveSuite(
   const { client } = await requireMember();
   try {
     const { id } = readForm(z.object({ id: uuid }), form);
-    assertOk(
-      (
-        await client
-          .from("suites")
-          .update({ archived_at: new Date().toISOString() })
-          .eq("id", id)
-          .select("id")
-          .single()
-      ).error,
-    );
+    assertOk((await client.rpc("archive_group", { p_group_id: id })).error);
     revalidatePath("/", "layout");
-    return { success: "Suite archived. Its cases remain in the repository." };
+    return {
+      success:
+        "Folder and subfolders archived. Their cases remain in the library.",
+    };
   } catch (error) {
     return actionError(error);
   }

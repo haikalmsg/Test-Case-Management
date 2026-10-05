@@ -4,9 +4,12 @@ import { randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { setTimeout as delay } from "node:timers/promises";
 import { config } from "dotenv";
-import { createClient } from "@supabase/supabase-js";
+import {
+  createClient,
+  type PostgrestSingleResponse,
+} from "@supabase/supabase-js";
 import { Client as PgClient } from "pg";
-import type { Database } from "../../src/lib/supabase/database.types";
+import type { Database, Json } from "../../src/lib/supabase/database.types";
 config({ path: ".env.local", quiet: true });
 const status = JSON.parse(
   execFileSync("pnpm", ["exec", "supabase", "status", "-o", "json"], {
@@ -89,7 +92,18 @@ async function cleanup() {
       await pg.query("delete from public.run_cases where project_id=$1", [
         projectId,
       ]);
+      // Delete children before source executions because reruns reference runs.
+      await pg.query(
+        "delete from public.test_runs where project_id=$1 and source_run_id is not null",
+        [projectId],
+      );
       await pg.query("delete from public.test_runs where project_id=$1", [
+        projectId,
+      ]);
+      await pg.query("delete from public.plan_cases where project_id=$1", [
+        projectId,
+      ]);
+      await pg.query("delete from public.test_plans where project_id=$1", [
         projectId,
       ]);
       await pg.query("delete from public.test_cases where project_id=$1", [
@@ -273,6 +287,7 @@ test(
           assert.equal((await client.rpc("accept_invitation")).error, null);
         },
       );
+      let planId: string;
       let runId: string;
       let resultId: string;
       await t.test(
@@ -323,11 +338,18 @@ test(
             ],
           });
           assert.equal(created.error, null);
-          const run = await member.client.rpc("create_run", {
+          const plan = await member.client.rpc("save_plan", {
             p_project_id: projectId!,
+            p_name: "Snapshot plan",
+            p_description: "",
+            p_case_ids: [created.data!],
+          });
+          assert.equal(plan.error, null);
+          planId = plan.data!;
+          const run = await member.client.rpc("create_plan_run", {
+            p_plan_id: planId,
             p_name: "Concurrent execution",
             p_environment: "Test",
-            p_case_ids: [created.data!],
           });
           assert.equal(run.error, null);
           runId = run.data!;
@@ -389,6 +411,446 @@ test(
         },
       );
       await t.test(
+        "nested folder imports across pages, shared cases, and reruns preserve execution history",
+        async () => {
+          const root = await member.client.rpc("save_group", {
+            p_project_id: projectId!,
+            p_name: "API case group",
+            p_description: "",
+          });
+          assert.equal(root.error, null);
+          const group = await member.client
+            .from("suites")
+            .select()
+            .eq("id", root.data!)
+            .single();
+          assert.equal(group.error, null);
+          const child = await member.client.rpc("save_group", {
+            p_project_id: projectId!,
+            p_name: "Child folder",
+            p_description: "",
+            p_parent_id: root.data!,
+          });
+          assert.equal(child.error, null);
+          const grandchild = await member.client.rpc("save_group", {
+            p_project_id: projectId!,
+            p_name: "Grandchild folder",
+            p_description: "",
+            p_parent_id: child.data!,
+          });
+          assert.equal(grandchild.error, null);
+          const descendants = await member.client.rpc("group_descendant_ids", {
+            p_project_id: projectId!,
+            p_group_id: root.data!,
+          });
+          assert.equal(descendants.error, null);
+          assert.deepEqual(
+            new Set(descendants.data!),
+            new Set([root.data!, child.data!, grandchild.data!]),
+          );
+          const fixture = await service
+            .from("test_cases")
+            .insert(
+              Array.from({ length: 105 }, (_, i) => ({
+                project_id: projectId!,
+                suite_id: descendants.data![i % 3],
+                title: `Library case ${i}`,
+                number: 0,
+                created_by: member.id,
+              })),
+            )
+            .select("id,number")
+            .order("number");
+          assert.equal(fixture.error, null);
+          const library = () =>
+            member.client
+              .from("test_cases")
+              .select("id,number", { count: "exact" })
+              .eq("project_id", projectId!)
+              .in("suite_id", descendants.data!)
+              .is("archived_at", null)
+              .order("number");
+          const pages = await Promise.all([
+            library().range(0, 99),
+            library().range(100, 199),
+          ]);
+          pages.forEach((p) => assert.equal(p.error, null));
+          assert.equal(pages[0].count, 105);
+          assert.equal(pages[0].data!.length, 100);
+          assert.equal(pages[1].data!.length, 5);
+          const imported = pages.flatMap((p) => p.data!.map((c) => c.id));
+          const planValues = {
+            p_project_id: projectId!,
+            p_name: "Reusable group plan",
+            p_description: "",
+            p_case_ids: imported,
+          };
+          const plan = await member.client.rpc("save_plan", planValues);
+          assert.equal(plan.error, null);
+          const shared = await member.client.rpc("save_plan", {
+            ...planValues,
+            p_name: "Second plan",
+            p_case_ids: [imported[0]],
+          });
+          assert.equal(shared.error, null);
+          const references = await member.client
+            .from("plan_cases")
+            .select()
+            .eq("case_id", imported[0]);
+          assert.equal(references.error, null);
+          assert.equal(references.data!.length, 2);
+          const added = await member.client.rpc("save_case", {
+            p_project_id: projectId!,
+            p_suite_id: group.data!.id,
+            p_title: "Added after group import",
+            p_description: "",
+            p_preconditions: "",
+            p_priority: "medium",
+            p_classification: "manual",
+            p_steps: [],
+          });
+          assert.equal(added.error, null);
+          const run = await member.client.rpc("create_plan_run", {
+            p_plan_id: plan.data!,
+            p_name: "Group execution",
+            p_environment: "API",
+          });
+          assert.equal(run.error, null);
+          const outcomes = await member.client
+            .from("run_cases")
+            .select()
+            .eq("run_id", run.data!)
+            .order("case_number");
+          assert.equal(outcomes.error, null);
+          assert.equal(outcomes.data!.length, 105);
+          assert.ok(!outcomes.data!.some((c) => c.case_id === added.data));
+          for (let i = 0; i < outcomes.data!.length; i += 20) {
+            const results = await Promise.all(
+              outcomes.data!.slice(i, i + 20).map((c, j) =>
+                member.client.rpc("record_result", {
+                  p_run_case_id: c.id,
+                  p_status:
+                    (
+                      [
+                        "failed",
+                        "blocked",
+                        "failed",
+                        "blocked",
+                        "skipped",
+                      ] as const
+                    )[i + j] ?? "passed",
+                  p_notes: "Original execution notes",
+                }),
+              ),
+            );
+            results.forEach((r) => assert.equal(r.error, null));
+          }
+          assert.equal(
+            (await member.client.rpc("complete_run", { p_run_id: run.data! }))
+              .error,
+            null,
+          );
+          const before = await member.client
+            .from("test_runs")
+            .select("*,run_cases(*)")
+            .eq("id", run.data!)
+            .single();
+          assert.equal(before.error, null);
+          const updated = await member.client.rpc("save_case", {
+            p_project_id: projectId!,
+            p_case_id: imported[0],
+            p_suite_id: group.data!.id,
+            p_title: "Latest case title",
+            p_description: "Latest description",
+            p_preconditions: "Latest precondition",
+            p_priority: "high",
+            p_classification: "automated",
+            p_steps: [
+              { action: "Latest action", expected_result: "Latest expected" },
+            ],
+          });
+          assert.equal(updated.error, null);
+          assert.equal(
+            (
+              await member.client.rpc("archive_case", {
+                p_case_id: imported[2],
+              })
+            ).error,
+            null,
+          );
+          const currentIds = imported.filter((id) => id !== imported[3]);
+          currentIds.push(added.data!);
+          assert.equal(
+            (
+              await member.client.rpc("save_plan", {
+                ...planValues,
+                p_plan_id: plan.data!,
+                p_case_ids: currentIds,
+              })
+            ).error,
+            null,
+          );
+          const retryValues = {
+            p_plan_id: plan.data!,
+            p_source_run_id: run.data!,
+            p_name: "Targeted retry",
+            p_environment: "API",
+            p_mode: "unsuccessful",
+          };
+          const retry = await member.client.rpc("create_plan_run", retryValues);
+          assert.equal(retry.error, null);
+          const retryCases = await member.client
+            .from("run_cases")
+            .select()
+            .eq("run_id", retry.data!)
+            .order("case_number");
+          assert.equal(retryCases.error, null);
+          assert.deepEqual(
+            retryCases.data!.map((c) => c.case_id),
+            imported.slice(0, 2),
+          );
+          assert.ok(
+            retryCases.data!.every(
+              (c) =>
+                c.status === "untested" &&
+                c.notes === "" &&
+                c.tested_at === null &&
+                c.tester_id === null,
+            ),
+          );
+          const snapshot = retryCases.data![0].snapshot as {
+            title: string;
+            steps: { action: string }[];
+          };
+          assert.equal(snapshot.title, "Latest case title");
+          assert.equal(snapshot.steps[0].action, "Latest action");
+          const full = await member.client.rpc("create_plan_run", {
+            ...retryValues,
+            p_mode: "all",
+            p_name: "Full retry",
+          });
+          assert.equal(full.error, null);
+          const fullCases = await member.client
+            .from("run_cases")
+            .select("case_id")
+            .eq("run_id", full.data!);
+          assert.equal(fullCases.error, null);
+          assert.equal(fullCases.data!.length, 104);
+          assert.ok(fullCases.data!.some((c) => c.case_id === added.data));
+          const after = await member.client
+            .from("test_runs")
+            .select("*,run_cases(*)")
+            .eq("id", run.data!)
+            .single();
+          assert.equal(after.error, null);
+          // Nested row order is not part of the API contract.
+          before.data!.run_cases.sort((a, b) => a.id.localeCompare(b.id));
+          after.data!.run_cases.sort((a, b) => a.id.localeCompare(b.id));
+          assert.deepEqual(after.data, before.data);
+          const removed = await member.client
+            .from("test_cases")
+            .select("id")
+            .eq("id", imported[3])
+            .single();
+          assert.equal(removed.error, null);
+          assert.equal(
+            (
+              await member.client.rpc("save_plan", {
+                ...planValues,
+                p_plan_id: plan.data!,
+                p_case_ids: [added.data!],
+              })
+            ).error,
+            null,
+          );
+          const emptyRetry = await member.client.rpc(
+            "create_plan_run",
+            retryValues,
+          );
+          assert.match(emptyRetry.error!.message, /No eligible cases/);
+          assert.equal(
+            (await member.client.rpc("archive_plan", { p_plan_id: plan.data! }))
+              .error,
+            null,
+          );
+          assert.ok(
+            (
+              await member.client.rpc("create_plan_run", {
+                ...retryValues,
+                p_mode: "all",
+              })
+            ).error,
+          );
+          for (const c of retryCases.data!)
+            assert.equal(
+              (
+                await member.client.rpc("record_result", {
+                  p_run_case_id: c.id,
+                  p_status: "passed",
+                  p_notes: "Fixed",
+                })
+              ).error,
+              null,
+            );
+          assert.equal(
+            (await member.client.rpc("complete_run", { p_run_id: retry.data! }))
+              .error,
+            null,
+          );
+        },
+      );
+      await t.test(
+        "concurrent plan saves and starts capture one complete membership",
+        async () => {
+          const cases = await member.client
+            .from("test_cases")
+            .select("id")
+            .eq("project_id", projectId!)
+            .is("archived_at", null)
+            .order("number")
+            .limit(2);
+          assert.equal(cases.error, null);
+          const ids = cases.data!.map((c) => c.id);
+          const values = {
+            p_project_id: projectId!,
+            p_name: "Concurrent plan",
+            p_description: "",
+            p_case_ids: [ids[0]],
+          };
+          const plan = await member.client.rpc("save_plan", values);
+          assert.equal(plan.error, null);
+          for (let i = 0; i < 4; i++) {
+            assert.equal(
+              (
+                await member.client.rpc("save_plan", {
+                  ...values,
+                  p_plan_id: plan.data!,
+                })
+              ).error,
+              null,
+            );
+            const [saved, started]: [
+              PostgrestSingleResponse<string>,
+              PostgrestSingleResponse<string>,
+            ] = await Promise.all([
+              member.client.rpc("save_plan", {
+                ...values,
+                p_plan_id: plan.data!,
+                p_case_ids: ids,
+              }),
+              member.client.rpc("create_plan_run", {
+                p_plan_id: plan.data!,
+                p_name: `Race ${i}`,
+                p_environment: "",
+              }),
+            ]);
+            assert.equal(saved.error, null);
+            assert.equal(started.error, null);
+            const snapshot: PostgrestSingleResponse<{ case_id: string }[]> =
+              await member.client
+                .from("run_cases")
+                .select("case_id")
+                .eq("run_id", started.data!)
+                .order("case_number");
+            assert.equal(snapshot.error, null);
+            assert.ok(
+              snapshot.data!.length === 1 || snapshot.data!.length === 2,
+            );
+            assert.deepEqual(
+              snapshot.data!.map((c) => c.case_id),
+              ids.slice(0, snapshot.data!.length),
+            );
+          }
+          // A concurrent library edit cannot mix a title from one version with steps from another.
+          const caseValues = {
+            p_project_id: projectId!,
+            p_case_id: ids[0],
+            p_priority: "medium" as const,
+            p_classification: "manual" as const,
+            p_preconditions: "",
+          };
+          for (let i = 0; i < 4; i++) {
+            const version = `Version ${i}`;
+            const [saved, started]: [
+              PostgrestSingleResponse<string>,
+              PostgrestSingleResponse<string>,
+            ] = await Promise.all([
+              member.client.rpc("save_case", {
+                ...caseValues,
+                p_title: version,
+                p_description: version,
+                p_steps: [{ action: version, expected_result: version }],
+              }),
+              member.client.rpc("create_plan_run", {
+                p_plan_id: plan.data!,
+                p_name: version,
+                p_environment: "",
+              }),
+            ]);
+            assert.equal(saved.error, null);
+            assert.equal(started.error, null);
+            const result: PostgrestSingleResponse<{ snapshot: Json }> =
+              await member.client
+                .from("run_cases")
+                .select("snapshot")
+                .eq("run_id", started.data!)
+                .eq("case_id", ids[0])
+                .single();
+            assert.equal(result.error, null);
+            const content = result.data!.snapshot as {
+              title: string;
+              description: string;
+              steps: { action: string }[];
+            };
+            if (content.title.startsWith("Version")) {
+              assert.equal(content.description, content.title);
+              assert.equal(content.steps[0].action, content.title);
+            } else assert.equal(i, 0);
+          }
+        },
+      );
+      await t.test(
+        "competing folder moves cannot create a hierarchy cycle",
+        async () => {
+          const values = { p_project_id: projectId!, p_description: "" };
+          const a = await member.client.rpc("save_group", {
+            ...values,
+            p_name: "Folder A",
+          });
+          const b = await member.client.rpc("save_group", {
+            ...values,
+            p_name: "Folder B",
+          });
+          assert.equal(a.error, null);
+          assert.equal(b.error, null);
+          const moves = await Promise.all([
+            member.client.rpc("save_group", {
+              ...values,
+              p_group_id: a.data!,
+              p_name: "Folder A",
+              p_parent_id: b.data!,
+            }),
+            member.client.rpc("save_group", {
+              ...values,
+              p_group_id: b.data!,
+              p_name: "Folder B",
+              p_parent_id: a.data!,
+            }),
+          ]);
+          assert.equal(moves.filter((result) => !result.error).length, 1);
+          assert.match(
+            moves.find((result) => result.error)!.error!.message,
+            /itself|subgroups/,
+          );
+          const tree = await member.client.rpc("group_descendant_ids", {
+            p_project_id: projectId!,
+            p_group_id: moves[0].error ? a.data! : b.data!,
+          });
+          assert.equal(tree.error, null);
+          assert.deepEqual(new Set(tree.data!), new Set([a.data!, b.data!]));
+        },
+      );
+      await t.test(
         "removed members lose access using an existing session",
         async () => {
           assert.equal(
@@ -407,11 +869,10 @@ test(
           );
           assert.ok(
             (
-              await member.client.rpc("create_run", {
-                p_project_id: projectId!,
+              await member.client.rpc("create_plan_run", {
+                p_plan_id: planId,
                 p_name: "Denied",
                 p_environment: "",
-                p_case_ids: [],
               })
             ).error,
           );
@@ -429,7 +890,7 @@ test(
           assert.equal(count.error, null);
           if (count.count !== 2) {
             t.diagnostic(
-              "Other admins exist; last-admin concurrency is covered by transactional SQL tests.",
+              "Other admins exist; skipping the last-admin demotion scenario.",
             );
             return;
           }
@@ -512,13 +973,15 @@ test("First-admin bootstrap and optional sample-data scripts work on an empty wo
     });
     const demo = await service
       .from("projects")
-      .select("id,test_cases(id),test_runs(id)")
+      .select("id,test_cases(id),test_plans(id),test_runs(id,plan_id)")
       .eq("code", "DEMO")
       .single();
     assert.equal(demo.error, null);
     projectId = demo.data!.id;
     assert.equal(demo.data!.test_cases.length, 3);
     assert.equal(demo.data!.test_runs.length, 1);
+    assert.equal(demo.data!.test_plans.length, 1);
+    assert.equal(demo.data!.test_runs[0].plan_id, demo.data!.test_plans[0].id);
   } finally {
     const profile = await service
       .from("profiles")

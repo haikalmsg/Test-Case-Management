@@ -34,16 +34,12 @@ const { data: project, error } = await client
   .select()
   .single();
 if (error) throw error;
-const { data: suite, error: suiteError } = await client
-  .from("suites")
-  .insert({
-    project_id: project!.id,
-    name: "Authentication",
-    description: "Sign-in and account access.",
-  })
-  .select()
-  .single();
-if (suiteError) throw suiteError;
+const { data: groupId, error: groupError } = await client.rpc("save_group", {
+  p_project_id: project!.id,
+  p_name: "Authentication",
+  p_description: "Sign-in and account access.",
+});
+if (groupError) throw groupError;
 const definitions = [
   [
     "A user can sign in with valid credentials",
@@ -73,18 +69,27 @@ for (const [title, priority, action, expected_result] of definitions) {
     p_preconditions: "A registered test user exists.",
     p_priority: priority,
     p_classification: "manual",
-    p_suite_id: suite!.id,
+    p_suite_id: groupId!,
     p_steps: [{ action, expected_result }],
   });
   if (result.error) throw result.error;
   ids.push(result.data!);
 }
-const run = await client.rpc("create_run", {
+const plan = await client.rpc("save_plan", {
   p_project_id: project!.id,
+  p_name: "Portal smoke tests",
+  p_description:
+    "Reusable smoke coverage imported from the Authentication group.",
+  p_case_ids: ids,
+});
+if (plan.error) throw plan.error;
+const run = await client.rpc("create_plan_run", {
+  p_plan_id: plan.data!,
   p_name: "Portal smoke test",
   p_environment: "Staging",
-  p_case_ids: ids,
 });
 if (run.error) throw run.error;
 await client.auth.signOut();
-console.log("Created DEMO project, suite, three cases, and an active run.");
+console.log(
+  "Created DEMO project, case group, three cases, reusable plan, and an active run.",
+);

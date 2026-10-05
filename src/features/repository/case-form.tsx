@@ -13,10 +13,12 @@ export function CaseForm({
   suites,
   initial,
   steps = [],
+  defaultSuiteId = "",
 }: {
   projectId: string;
   suites: { id: string; name: string }[];
   initial?: Tables<"test_cases">;
+  defaultSuiteId?: string;
   steps?: { action: string; expected_result: string }[];
 }) {
   const [rows, setRows] = useState<Step[]>(
@@ -71,17 +73,19 @@ export function CaseForm({
             />
           </Field>
           <div className="grid gap-4 md:grid-cols-3">
-            <Field label="Suite" htmlFor="suite_id">
+            <Field label="Case group" htmlFor="suite_id">
               <Select
                 id="suite_id"
                 name="suite_id"
                 defaultValue={
-                  suites.some((s) => s.id === initial?.suite_id)
-                    ? (initial?.suite_id ?? "")
+                  suites.some(
+                    (s) => s.id === (initial?.suite_id ?? defaultSuiteId),
+                  )
+                    ? (initial?.suite_id ?? defaultSuiteId)
                     : ""
                 }
               >
-                <option value="">No suite</option>
+                <option value="">Ungrouped</option>
                 {suites.map((s) => (
                   <option key={s.id} value={s.id}>
                     {s.name}

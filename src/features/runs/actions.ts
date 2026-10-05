@@ -10,7 +10,7 @@ import {
   type ActionState,
   uuid,
 } from "@/lib/actions";
-export async function createRun(
+export async function createPlanRun(
   _: ActionState,
   form: FormData,
 ): Promise<ActionState> {
@@ -21,22 +21,28 @@ export async function createRun(
     const v = readForm(
       z.object({
         project_id: uuid,
+        plan_id: uuid,
+        source_run_id: z.union([uuid, z.literal("")]),
+        mode: z.enum(["all", "unsuccessful"]),
         name: z.string().trim().min(1).max(160),
         environment: z.string().trim().max(200),
       }),
       form,
     );
     projectId = v.project_id;
-    const caseIds = z
-      .array(uuid)
-      .min(1, "Select at least one case.")
-      .max(1000)
-      .parse(form.getAll("case_ids"));
-    const { data, error } = await client.rpc("create_run", {
-      p_project_id: projectId,
+    const plan = await client
+      .from("test_plans")
+      .select("id")
+      .eq("id", v.plan_id)
+      .eq("project_id", projectId)
+      .single();
+    assertOk(plan.error);
+    const { data, error } = await client.rpc("create_plan_run", {
+      p_plan_id: v.plan_id,
       p_name: v.name,
       p_environment: v.environment,
-      p_case_ids: caseIds,
+      p_source_run_id: v.source_run_id || undefined,
+      p_mode: v.mode,
     });
     assertOk(error);
     runId = data!;
@@ -87,38 +93,5 @@ export async function completeRun(
     return { success: "Run completed. Results are now read-only." };
   } catch (error) {
     return actionError(error);
-  }
-}
-
-export async function findRunCases(input: {
-  projectId: string;
-  query: string;
-  page: number;
-}) {
-  const { client } = await requireMember();
-  try {
-    const v = z
-      .object({
-        projectId: uuid,
-        query: z.string().trim().max(200),
-        page: z.number().int().min(1).max(100000),
-      })
-      .parse(input);
-    let query = client
-      .from("test_cases")
-      .select("id,number,title,priority", { count: "exact" })
-      .eq("project_id", v.projectId)
-      .is("archived_at", null)
-      .order("number");
-    if (v.query)
-      query = query.ilike("title", `%${v.query.replace(/[\\%_]/g, "\\$&")}%`);
-    const { data, error, count } = await query.range(
-      (v.page - 1) * 100,
-      v.page * 100 - 1,
-    );
-    assertOk(error);
-    return { rows: data ?? [], count: count ?? 0 };
-  } catch (error) {
-    return { rows: [], count: 0, error: actionError(error).error };
   }
 }

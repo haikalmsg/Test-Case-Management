@@ -20,11 +20,11 @@ export default async function CaseDetail({
   return (
     <>
       <Link
-        href={`/projects/${projectId}/cases`}
+        href={`/projects/${projectId}/cases${item.suite_id ? `?suite=${item.suite_id}` : ""}`}
         className="mb-5 inline-flex items-center gap-2 text-xs text-muted-foreground hover:text-primary"
       >
         <ArrowLeft className="size-3" />
-        Back to repository
+        Back to folder
       </Link>
       <PageHeader eyebrow={`${project.code}-${item.number}`} title={item.title}>
         {editable ? (
@@ -41,7 +41,7 @@ export default async function CaseDetail({
       <div className="mb-6 flex gap-2">
         <StatusBadge status={item.priority} />
         <Badge>{item.classification}</Badge>
-        <Badge>{item.suites?.name ?? "No suite"}</Badge>
+        <Badge>{item.suites?.name ?? "Ungrouped"}</Badge>
       </div>
       <div className="grid items-start gap-6 xl:grid-cols-[1fr_280px]">
         <div className="space-y-6">

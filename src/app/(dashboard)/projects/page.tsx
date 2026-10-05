@@ -30,7 +30,7 @@ export default async function Projects() {
             {active.map((p, i) => (
               <Link
                 key={p.id}
-                href={`/projects/${p.id}/cases`}
+                href={`/projects/${p.id}/plans`}
                 className="group"
               >
                 <Card className="h-full transition-colors hover:border-primary/40">
@@ -50,7 +50,7 @@ export default async function Projects() {
                       {p.description || "Your next great release starts here."}
                     </p>
                     <div className="mt-6 flex items-center justify-between border-t pt-4 text-xs text-muted-foreground">
-                      <span>Open test repository</span>
+                      <span>Open test plans</span>
                       <ArrowUpRight className="size-4" />
                     </div>
                   </CardContent>
@@ -62,7 +62,7 @@ export default async function Projects() {
             <Card>
               <EmptyState
                 title="Your first project starts here"
-                description="Create a project to organize suites, cases, and test runs."
+                description="Create a project to organize test plans, library cases, and executions."
               />
             </Card>
           ) : null}
@@ -75,7 +75,7 @@ export default async function Projects() {
                 {archived.map((p) => (
                   <Link
                     key={p.id}
-                    href={`/projects/${p.id}/cases`}
+                    href={`/projects/${p.id}/plans`}
                     className="block rounded-lg border bg-white p-4 text-sm"
                   >
                     {p.name} <Badge className="ml-2">Archived</Badge>

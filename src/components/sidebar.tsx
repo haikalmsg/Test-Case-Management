@@ -7,7 +7,7 @@ import {
   FolderKanban,
   Users,
   BookOpen,
-  Layers3,
+  ClipboardList,
   Play,
   ChevronRight,
 } from "lucide-react";
@@ -35,9 +35,9 @@ export function Sidebar({
       : []),
   ];
   const projectLinks = [
-    { suffix: "cases", label: "Test repository", icon: BookOpen },
-    { suffix: "suites", label: "Test suites", icon: Layers3 },
-    { suffix: "runs", label: "Test runs", icon: Play },
+    { suffix: "plans", label: "Test plans", icon: ClipboardList },
+    { suffix: "cases", label: "Case library", icon: BookOpen },
+    { suffix: "runs", label: "Run history", icon: Play },
   ];
   return (
     <aside className="border-b border-border bg-white lg:fixed lg:inset-y-0 lg:w-60 lg:border-r lg:border-b-0">
@@ -88,7 +88,7 @@ export function Sidebar({
             onChange={(e) =>
               router.push(
                 e.target.value
-                  ? `/projects/${e.target.value}/cases`
+                  ? `/projects/${e.target.value}/plans`
                   : "/projects",
               )
             }

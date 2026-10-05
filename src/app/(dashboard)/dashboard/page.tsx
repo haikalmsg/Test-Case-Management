@@ -222,7 +222,7 @@ export default async function Dashboard() {
               {projects.data?.length ? (
                 projects.data.map((p) => (
                   <Link
-                    href={`/projects/${p.id}/cases`}
+                    href={`/projects/${p.id}/plans`}
                     key={p.id}
                     className="flex items-center gap-3 text-sm hover:text-primary"
                   >

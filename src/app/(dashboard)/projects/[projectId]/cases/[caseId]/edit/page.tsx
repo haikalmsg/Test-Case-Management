@@ -1,8 +1,7 @@
 import { redirect } from "next/navigation";
-import { requireMember } from "@/lib/auth";
 import { getProject } from "@/features/projects/queries";
-import { getCase } from "@/features/repository/queries";
-import { assertOk } from "@/lib/actions";
+import { getCase, getCaseGroups } from "@/features/repository/queries";
+import { groupOptions } from "@/features/repository/groups";
 import { PageHeader } from "@/components/shared";
 import { CaseForm } from "@/features/repository/case-form";
 export default async function EditCase({
@@ -15,14 +14,10 @@ export default async function EditCase({
   const item = await getCase(projectId, caseId);
   if (project.archived_at || item.archived_at)
     redirect(`/projects/${projectId}/cases/${caseId}`);
-  const { client } = await requireMember();
-  const { data, error } = await client
-    .from("suites")
-    .select("id,name")
-    .eq("project_id", projectId)
-    .is("archived_at", null)
-    .order("name");
-  assertOk(error);
+  const groups = groupOptions(await getCaseGroups(projectId)).filter(
+    (group) => !group.archived_at,
+  );
+  const options = groups.map((group) => ({ id: group.id, name: group.path }));
   return (
     <div className="max-w-4xl">
       <PageHeader
@@ -32,7 +27,7 @@ export default async function EditCase({
       />
       <CaseForm
         projectId={projectId}
-        suites={data ?? []}
+        suites={options}
         initial={item}
         steps={item.case_steps}
       />
